@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Merry Christmas</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<style>
+  html,body{height:100%;margin:0;padding:0;background:#000;overflow:hidden;}
+  body{touch-action:none;-webkit-tap-highlight-color:transparent;}
+  #wrap{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);}
+  #scene{display:block;}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="scene"></canvas></div>
+<script>
+(function () {
+  "use strict";
+
+  /* ================= 全局参数（与原 tree.py 一致） ================= */
+  var W = 1600, H = 900;              // 设计画布尺寸（原 Pygame 窗口）
+  var TAU = Math.PI * 2;
+
+  var TREE_POINTS   = 50000;
+  var GROUND_POINTS = 4000;
+  var STAR_POINTS   = 1200;
+  var HEART_POINTS  = 1000;
+  var SNOW2D_POINTS = 10;
+
+  var CAM_DIST    = 13.0;
+  var CAM_HEIGHT  = 6.0;
+  var PITCH       = -0.25;
+  var TREE_HEIGHT = 12.0;
+
+  var SPIN_SPEED = 0.0045;            // 每帧旋转弧度（60fps 基准）
+  var SPIN_LOOPS = 9;
+
+  // 左下角第二行文字：改成你自己的名字 / 文案
+  var SIGN_LINE2 = "647";
+
+  var rand = function (a, b) { return a + Math.random() * (b - a); };
+  var randInt = function (a, b) { return Math.floor(a + Math.random() * (b - a + 1)); };
+
+  /* ================= 生成点云 ================= */
+  var xs = [], ys = [], zs = [], rs = [], gs = [], bs = [];
+
+  function push(x, y, z, r, g, b) {
+    xs.push(x); ys.push(y); zs.push(z);
+    rs.push(r); gs.push(g); bs.push(b);
+  }
+
+  function genTree() {
+    var spiral_n = Math.floor(TREE_POINTS * 0.7), i, u, h, y, base_r, branch_wave, t, angle, r, x, z,
+        mid, bg, bb, cr, cg, cb, fill_n;
+
+    for (i = 0; i < spiral_n; i++) {
+      u = Math.random();
+      h = Math.pow(u, 1.6);
+      y = TREE_HEIGHT * h + 0.2;
+
+      base_r = Math.pow(1 - h, 1.1) * 3.2;
+      branch_wave = Math.max(0, Math.sin((h * 5.8 + 0.15) * TAU));
+      base_r *= 1.0 + 0.65 * branch_wave;
+
+      t = u * SPIN_LOOPS * TAU;
+      angle = t + rand(-0.22, 0.22);
+      r = base_r * rand(0.85, 1.08);
+
+      x = Math.cos(angle) * r;
+      z = Math.sin(angle) * r;
+
+      mid = Math.max(0.15, 1.0 - Math.abs(h - 0.55) * 1.5);
+      bg = 155 + Math.floor(90 * mid);
+      bb = 185 + Math.floor(70 * mid);
+
+      cr = 255;
+      cg = Math.min(255, bg + randInt(-15, 20));
+      cb = Math.min(255, bb + randInt(-15, 35));
+
+      if (Math.random() < 0.08) {
+        cr = 255;
+        cg = 255 - randInt(0, 35);
+        cb = Math.min(255, 230 + randInt(0, 25));
+      }
+      push(x, y, z, cr, cg, cb);
+    }
+
+    fill_n = TREE_POINTS - spiral_n;
+    for (i = 0; i < fill_n; i++) {
+      h = Math.pow(Math.random(), 1.9);
+      y = TREE_HEIGHT * h + 0.2 + rand(-0.08, 0.08);
+
+      base_r = Math.pow(1 - h, 1.1) * 4.3;
+      branch_wave = Math.max(0, Math.sin((h * 5.8 + 0.15) * TAU));
+      base_r *= 1.0 + 0.65 * branch_wave;
+
+      r = base_r * Math.sqrt(Math.random());
+      angle = Math.random() * TAU;
+
+      x = Math.cos(angle) * r + rand(-0.08, 0.08);
+      z = Math.sin(angle) * r + rand(-0.08, 0.08);
+
+      push(x, y, z, 255, randInt(165, 225), randInt(190, 250));
+    }
+  }
+
+  function genGround() {
+    var rings = [4.6, 6.0, 7.4, 8.8, 10.2, 11.4], i, ring, r, theta, x, z, c, u1, u2;
+    for (i = 0; i < GROUND_POINTS; i++) {
+      ring = rings[Math.floor(Math.random() * rings.length)];
+      u1 = Math.random() || 1e-9; u2 = Math.random();
+      r = ring + 0.3 * Math.sqrt(-2 * Math.log(u1)) * Math.cos(TAU * u2);
+      theta = Math.random() * TAU;
+      x = Math.cos(theta) * r;
+      z = Math.sin(theta) * r;
+      c = Math.random() < 0.15 ? randInt(235, 255) : randInt(190, 235);
+      push(x, -0.25, z, c, c, 255);
+    }
+  }
+
+  function genStars() {
+    var i, x, z, y, base;
+    for (i = 0; i < STAR_POINTS; i++) {
+      x = rand(-18, 18); z = rand(-18, 18); y = rand(3, 18);
+      base = randInt(215, 255);
+      push(x, y, z, base, base, 255);
+    }
+  }
+
+  function genHeart() {
+    var scale = 0.9, top_y = TREE_HEIGHT + 0.05, n = 0, x, y, f, wx, wy, wz, dist, factor, g, b;
+    while (n < HEART_POINTS) {
+      x = rand(-1.3, 1.3);
+      y = rand(-1.4, 1.4);
+      f = Math.pow(x * x + y * y - 1.0, 3) - x * x * y * y * y;
+      if (f <= 0.0) {
+        wx = x * scale * 0.8;
+        wy = top_y + (y + 1.0) * scale * 0.5;
+        wz = rand(-0.18, 0.18);
+        dist = Math.sqrt(x * x + y * y);
+        factor = Math.max(0.35, 1.15 - 0.5 * dist);
+        g = Math.max(120, Math.min(255, Math.floor(130 * factor + 80)));
+        b = Math.max(120, Math.min(255, Math.floor(190 * factor + 70)));
+        push(wx, wy, wz, 255, g, b);
+        n++;
+      }
+    }
+  }
+
+  genTree(); genGround(); genStars(); genHeart();
+
+  var N = xs.length;
+  var px = new Float32Array(xs), py = new Float32Array(ys), pz = new Float32Array(zs);
+  var pcol = new Uint32Array(N);       // 预打包 ABGR，省掉每帧的通道运算
+  for (var k0 = 0; k0 < N; k0++) {
+    pcol[k0] = (255 << 24) | (bs[k0] << 16) | (gs[k0] << 8) | rs[k0];
+  }
+  xs = ys = zs = rs = gs = bs = null;
+
+  /* ================= 离屏像素缓冲（Canvas 2D，不依赖 GPU） ================= */
+  var off = document.createElement("canvas");
+  var octx = off.getContext("2d", { alpha: false });
+  var BW = W, BH = H, K = 1;
+  var img = octx.createImageData(W, H);
+  var buf = new Uint32Array(img.data.buffer);
+  var bufLen = buf.length;
+
+  /* ================= 主画布 ================= */
+  var wrap = document.getElementById("wrap");
+  var canvas = document.getElementById("scene");
+  var ctx = canvas.getContext("2d");
+
+  var cssScale = 1, dpr = 1, zoom = 1, textX = 40, cw = W, ch = H;
+
+  function setupBuffers(k) {
+    K = k;
+    BW = Math.round(W * k);
+    BH = Math.round(H * k);
+    off.width = BW;
+    off.height = BH;
+    img = octx.createImageData(BW, BH);
+    buf = new Uint32Array(img.data.buffer);
+    bufLen = buf.length;
+  }
+
+  /* ================= 前景雪花（2D） ================= */
+  var flakes = [];
+
+  function newFlake() {
+    var y = rand(-80, -10), speed = rand(30, 45);
+    var life = (H + 80 - y) / speed;
+    return { x: rand(0, W), y: y, r: rand(10, 16), v: speed, life: life, maxLife: life };
+  }
+
+  function initSnow() {
+    flakes = [];
+    for (var i = 0; i < SNOW2D_POINTS; i++) {
+      var f = newFlake();
+      var pre = rand(1, 22);          // 预热，开场就有雪花
+      f.y += f.v * pre;
+      f.life -= pre;
+      if (f.life <= 0 || f.y > H + 50) {
+        f = newFlake();
+      }
+      flakes.push(f);
+    }
+  }
+
+  function resetFlake(f) {
+    var nf = newFlake();
+    f.x = nf.x; f.y = nf.y; f.r = nf.r; f.v = nf.v; f.life = nf.life; f.maxLife = nf.maxLife;
+  }
+
+  function updateSnow(dt) {
+    for (var i = 0; i < flakes.length; i++) {
+      var f = flakes[i];
+      f.y += f.v * dt;
+      f.life -= dt;
+      if (f.life <= 0 || f.y > H + 50) resetFlake(f);
+    }
+  }
+
+  function drawSnow() {
+    ctx.fillStyle = "#fff";
+    for (var i = 0; i < flakes.length; i++) {
+      var f = flakes[i];
+      if (f.maxLife <= 0) continue;
+      var phase = f.life / f.maxLife;
+      var alpha = phase > 0.3 ? 1 : phase / 0.3;
+      alpha = Math.max(0, Math.min(1, alpha));
+
+      var steps = [
+        [Math.max(1, f.r * 1.3), alpha / 20],
+        [Math.max(1, f.r * 1.0), alpha / 12],
+        [Math.max(1, f.r * 0.75), alpha / 6],
+        [Math.max(1, f.r * 0.55), alpha / 3],
+        [Math.max(1, f.r * 0.45), alpha]
+      ];
+      for (var s = 0; s < steps.length; s++) {
+        if (steps[s][1] <= 0) continue;
+        ctx.globalAlpha = Math.min(1, steps[s][1]);
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, steps[s][0], 0, TAU);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ================= 文字 ================= */
+  var FONT = '45px "Monotype Corsiva","Segoe Script","Brush Script MT","Snell Roundhand","Apple Chancery",cursive';
+
+  function drawText() {
+    ctx.fillStyle = "#fff";
+    ctx.textBaseline = "top";
+    ctx.font = FONT;
+    ctx.fillText("Merry Christmas", textX, H / 3);
+    ctx.fillText(SIGN_LINE2, textX, H / 3 + 45 * 1.15 + 10);
+  }
+
+  /* ================= 尺寸自适应 ================= */
+  function resize() {
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var contain = Math.min(vw / W, vh / H);
+    var aspect = vw / Math.max(1, vh);
+    cssScale = aspect < 1.25 ? vh / H : contain;   // 竖屏按高度铺满
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    cw = Math.max(1, Math.round(W * cssScale));
+    ch = Math.max(1, Math.round(H * cssScale));
+
+    wrap.style.width = cw + "px";
+    wrap.style.height = ch + "px";
+    canvas.style.width = cw + "px";
+    canvas.style.height = ch + "px";
+    canvas.width = Math.max(1, Math.round(cw * dpr));
+    canvas.height = Math.max(1, Math.round(ch * dpr));
+
+    // 像素缓冲分辨率：大屏适当超采样，小屏/手机保持 1 倍省算力
+    var k = Math.min(1.5, Math.max(1, (cw * dpr) / W));
+    setupBuffers(Math.round(k * 100) / 100);
+
+    // 窄屏会把画布左右裁掉，文字跟着贴到可见左边缘
+    var bleed = (vw - cw) / 2;
+    textX = bleed < -1 ? Math.round((24 - bleed) / cssScale) : 40;
+
+    ctx.imageSmoothingEnabled = true;
+  }
+
+  /* ================= 交互 ================= */
+  var dragging = false, lastX = 0, angle = 0, paused = false;
+
+  wrap.addEventListener("pointerdown", function (e) {
+    dragging = true; lastX = e.clientX;
+    if (wrap.setPointerCapture) { try { wrap.setPointerCapture(e.pointerId); } catch (err) {} }
+  });
+  window.addEventListener("pointerup", function () { dragging = false; });
+  window.addEventListener("pointercancel", function () { dragging = false; });
+  window.addEventListener("pointermove", function (e) {
+    if (!dragging) return;
+    angle += (e.clientX - lastX) * 0.006;
+    lastX = e.clientX;
+  });
+  window.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    zoom = Math.max(0.55, Math.min(2.0, zoom * (e.deltaY > 0 ? 0.92 : 1.08)));
+  }, { passive: false });
+  window.addEventListener("dblclick", function () { zoom = 1; });
+  window.addEventListener("keydown", function (e) {
+    if (e.key === " " || e.keyCode === 32) { paused = !paused; e.preventDefault(); }
+  });
+  window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", function () { setTimeout(resize, 120); });
+
+  /* ================= 主循环 ================= */
+  var cosP = Math.cos(PITCH), sinP = Math.sin(PITCH);
+  var lastT = 0;
+
+  function drawPoints(a) {
+    var cosA = Math.cos(a), sinA = Math.sin(a);
+    var cx = BW * 0.5, cy = BH * 0.5;
+    var focal = H * 0.63;
+    var zf = zoom;
+
+    buf.fill(0xff000000);
+
+    for (var i = 0; i < N; i++) {
+      var x = px[i], y = py[i], z = pz[i];
+      var xz = x * cosA - z * sinA;
+      var zz = x * sinA + z * cosA;
+      var yp = y * cosP - zz * sinP - CAM_HEIGHT;
+      var zp = y * sinP + zz * cosP + CAM_DIST;
+      if (zp <= 0.1) continue;
+
+      var f = (focal / zp) * K * zf;
+      var sx = cx + xz * f;
+      var sy = cy - yp * f;
+
+      var rad = 3.6 - zp * 0.13;
+      if (rad < 1) rad = 1;
+      rad = Math.round(rad * K * zf);
+      if (rad < 1) rad = 1;
+
+      var col = pcol[i];
+
+      if (rad === 1) {
+        var x0 = Math.round(sx), y0 = Math.round(sy);
+        if (x0 < 0 || y0 < 0 || x0 + 1 >= BW || y0 + 1 >= BH) continue;
+        var o0 = y0 * BW + x0;
+        buf[o0] = col; buf[o0 + 1] = col;
+        buf[o0 + BW] = col; buf[o0 + BW + 1] = col;
+      } else if (rad === 2) {
+        var x1 = Math.round(sx) - 1, y1 = Math.round(sy) - 1;
+        if (x1 < 0 || y1 < 0 || x1 + 3 >= BW || y1 + 3 >= BH) continue;
+        var o1 = y1 * BW + x1;
+        buf[o1] = col; buf[o1 + 1] = col; buf[o1 + 2] = col; buf[o1 + 3] = col;
+        o1 += BW;
+        buf[o1] = col; buf[o1 + 1] = col; buf[o1 + 2] = col; buf[o1 + 3] = col;
+        o1 += BW;
+        buf[o1] = col; buf[o1 + 1] = col; buf[o1 + 2] = col; buf[o1 + 3] = col;
+        o1 += BW;
+        buf[o1] = col; buf[o1 + 1] = col; buf[o1 + 2] = col; buf[o1 + 3] = col;
+      } else {
+        var x2 = Math.round(sx) - rad, y2 = Math.round(sy) - rad;
+        var d = rad * 2;
+        for (var yy = 0; yy < d; yy++) {
+          var rowY = y2 + yy;
+          if (rowY < 0 || rowY >= BH) continue;
+          var base = rowY * BW;
+          for (var xx = 0; xx < d; xx++) {
+            var colX = x2 + xx;
+            if (colX < 0 || colX >= BW) continue;
+            buf[base + colX] = col;
+          }
+        }
+      }
+    }
+
+    octx.putImageData(img, 0, 0);
+  }
+
+  function render(now) {
+    if (!lastT) lastT = now;
+    var dt = (now - lastT) / 1000;
+    lastT = now;
+    if (dt > 0.05) dt = 0.05;
+    if (!(dt > 0)) dt = 0.016;
+
+    if (!paused) angle += SPIN_SPEED * 60 * dt;
+    updateSnow(dt);
+
+    drawPoints(angle);
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(off, 0, 0, BW, BH, 0, 0, canvas.width, canvas.height);
+
+    ctx.setTransform(cssScale * dpr, 0, 0, cssScale * dpr, 0, 0);
+    drawText();
+    drawSnow();
+
+    requestAnimationFrame(render);
+  }
+
+  /* ================= 启动 ================= */
+  resize();
+  initSnow();
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>
